@@ -57,24 +57,34 @@ function hmacSha1(key: string, message: string): string {
   return CryptoJS.HmacSHA1(message, key).toString(CryptoJS.enc.Base64)
 }
 
-function getAuthorization(config: CosConfig, method: string, path: string): string {
+function getAuthorization(config: CosConfig, method: string, path: string, queryParams: Record<string, string> = {}): string {
   const now = Math.floor(Date.now() / 1000)
   const keyTime = `${now};${now + 3600}`
 
   // 1. SignKey = HMAC-SHA1(SecretKey, KeyTime)
   const signKey = hmacSha1(config.secretKey, keyTime)
 
-  // 2. HttpString
-  const httpString = `${method.toLowerCase()}\n${path}\n\nhost=${config.bucket}.cos.${config.region}.myqcloud.com\n`
+  // 2. FormatParameters: 参数按字典序排列，key和value都小写，value需要URI编码
+  const sortedParamKeys = Object.keys(queryParams).sort()
+  const formatParameters = sortedParamKeys
+    .map(k => `${k.toLowerCase()}=${encodeURIComponent(queryParams[k]).toLowerCase()}`)
+    .join('&')
 
-  // 3. StringToSign
+  // 3. HttpString = HttpMethod\nUriPath\nFormatParameters\nFormatHost\n
+  const hostStr = `${config.bucket}.cos.${config.region}.myqcloud.com`
+  const httpString = `${method.toLowerCase()}\n${path}\n${formatParameters}\nhost=${hostStr.toLowerCase()}\n`
+
+  // 4. StringToSign
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
 
-  // 4. Signature
+  // 5. Signature
   const signature = hmacSha1(signKey, stringToSign)
 
-  // 5. Authorization
-  return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`
+  // 6. q-url-param-list: 参与签名的参数名列表（小写，分号分隔）
+  const paramList = sortedParamKeys.map(k => k.toLowerCase()).join(';')
+
+  // 7. Authorization
+  return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=${paramList}&q-signature=${signature}`
 }
 
 // ============ COS API ============
@@ -105,10 +115,18 @@ export async function listCosFiles(prefix: string = '', delimiter: string = '/')
   const fullPrefix = (config.prefix || '') + prefix
   const host = `${config.bucket}.cos.${config.region}.myqcloud.com`
   const path = '/'
+
+  // 查询参数必须参与签名计算
+  const queryParams: Record<string, string> = {
+    prefix: fullPrefix,
+    delimiter: delimiter,
+    'max-keys': '200',
+  }
+
   const queryString = `prefix=${encodeURIComponent(fullPrefix)}&delimiter=${delimiter}&max-keys=200`
   const url = `https://${host}${path}?${queryString}`
 
-  const authorization = getAuthorization(config, 'GET', path)
+  const authorization = getAuthorization(config, 'GET', path, queryParams)
 
   return new Promise((resolve, reject) => {
     uni.request({
@@ -230,7 +248,8 @@ export function getSignedUrl(fileKey: string, expireSeconds: number = 3600): str
   const keyTime = `${now};${expireTime}`
 
   const signKey = hmacSha1(config.secretKey, keyTime)
-  const httpString = `GET\n${path}\n\nhost=${host}\n`
+  // 无查询参数时的HttpString
+  const httpString = `GET\n${path}\n\nhost=${host.toLowerCase()}\n`
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
   const signature = hmacSha1(signKey, stringToSign)
 
