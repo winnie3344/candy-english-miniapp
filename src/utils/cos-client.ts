@@ -57,6 +57,19 @@ function hmacSha1(key: string, message: string): string {
   return CryptoJS.HmacSHA1(message, key).toString(CryptoJS.enc.Base64)
 }
 
+/**
+ * COS安全的URI编码（与官方cos-js-sdk-v5一致）
+ * encodeURIComponent基础上替换!、'、(、)、*
+ */
+function camSafeUrlEncode(str: string): string {
+  return encodeURIComponent(str)
+    .replace(/!/g, '%21')
+    .replace(/'/g, '%27')
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29')
+    .replace(/\*/g, '%2A')
+}
+
 function getAuthorization(config: CosConfig, method: string, path: string, queryParams: Record<string, string> = {}): string {
   const now = Math.floor(Date.now() / 1000)
   const keyTime = `${now};${now + 3600}`
@@ -64,26 +77,33 @@ function getAuthorization(config: CosConfig, method: string, path: string, query
   // 1. SignKey = HMAC-SHA1(SecretKey, KeyTime)
   const signKey = hmacSha1(config.secretKey, keyTime)
 
-  // 2. FormatParameters: 参数按字典序排列，key和value都小写，value需要URI编码
-  const sortedParamKeys = Object.keys(queryParams).sort()
+  // 2. FormatParameters: 参数按字典序排列，key小写+URI编码，value仅URI编码（不转小写）
+  //    与官方cos-js-sdk-v5的obj2str(obj, true)逻辑一致
+  const sortedParamKeys = Object.keys(queryParams).sort((a, b) => {
+    const la = a.toLowerCase(), lb = b.toLowerCase()
+    return la === lb ? 0 : la > lb ? 1 : -1
+  })
   const formatParameters = sortedParamKeys
-    .map(k => `${k.toLowerCase()}=${encodeURIComponent(queryParams[k]).toLowerCase()}`)
+    .map(k => `${camSafeUrlEncode(k).toLowerCase()}=${camSafeUrlEncode(queryParams[k] === undefined || queryParams[k] === null ? '' : '' + queryParams[k])}`)
     .join('&')
 
-  // 3. HttpString = HttpMethod\nUriPath\nFormatParameters\nFormatHost\n
+  // 3. HttpHeaders: 仅签host（key小写，value URI编码）
   const hostStr = `${config.bucket}.cos.${config.region}.myqcloud.com`
-  const httpString = `${method.toLowerCase()}\n${path}\n${formatParameters}\nhost=${hostStr.toLowerCase()}\n`
+  const formatHeaders = `host=${camSafeUrlEncode(hostStr.toLowerCase())}`
 
-  // 4. StringToSign
+  // 4. HttpString = HttpMethod\nUriPath\nFormatParameters\nFormatHeaders\n
+  const httpString = `${method.toLowerCase()}\n${path}\n${formatParameters}\n${formatHeaders}\n`
+
+  // 5. StringToSign
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
 
-  // 5. Signature
+  // 6. Signature
   const signature = hmacSha1(signKey, stringToSign)
 
-  // 6. q-url-param-list: 参与签名的参数名列表（小写，分号分隔）
-  const paramList = sortedParamKeys.map(k => k.toLowerCase()).join(';')
+  // 7. q-url-param-list: 参与签名的参数名列表（小写，分号分隔）
+  const paramList = sortedParamKeys.map(k => camSafeUrlEncode(k).toLowerCase()).join(';')
 
-  // 7. Authorization
+  // 8. Authorization
   return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=${paramList}&q-signature=${signature}`
 }
 
@@ -123,7 +143,17 @@ export async function listCosFiles(prefix: string = '', delimiter: string = '/')
     'max-keys': '200',
   }
 
-  const queryString = `prefix=${encodeURIComponent(fullPrefix)}&delimiter=${delimiter}&max-keys=200`
+  // 构建 HttpParameters: key小写+URI编码，value仅URI编码，按字典序排列
+  // 与官方cos-js-sdk-v5的obj2str(obj, true)逻辑一致
+  const sortedParamKeys = Object.keys(queryParams).sort((a, b) => {
+    const la = a.toLowerCase(), lb = b.toLowerCase()
+    return la === lb ? 0 : la > lb ? 1 : -1
+  })
+  const formatParameters = sortedParamKeys
+    .map(k => `${camSafeUrlEncode(k).toLowerCase()}=${camSafeUrlEncode(queryParams[k] === undefined || queryParams[k] === null ? '' : '' + queryParams[k])}`)
+    .join('&')
+
+  const queryString = formatParameters
   const url = `https://${host}${path}?${queryString}`
 
   const authorization = getAuthorization(config, 'GET', path, queryParams)
@@ -248,8 +278,9 @@ export function getSignedUrl(fileKey: string, expireSeconds: number = 3600): str
   const keyTime = `${now};${expireTime}`
 
   const signKey = hmacSha1(config.secretKey, keyTime)
-  // 无查询参数时的HttpString
-  const httpString = `GET\n${path}\n\nhost=${host.toLowerCase()}\n`
+  // 无查询参数时FormatParameters为空
+  const formatHeaders = `host=${camSafeUrlEncode(host.toLowerCase())}`
+  const httpString = `GET\n${path}\n\n${formatHeaders}\n`
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
   const signature = hmacSha1(signKey, stringToSign)
 
