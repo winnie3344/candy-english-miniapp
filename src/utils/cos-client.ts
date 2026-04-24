@@ -70,22 +70,21 @@ function camSafeUrlEncode(str: string): string {
     .replace(/\*/g, '%2A')
 }
 
-function getAuthorization(config: CosConfig, method: string, path: string, queryParams: Record<string, string> = {}): string {
+/**
+ * 生成COS请求签名
+ * 查询参数不参与签名（q-url-param-list为空），只签名host头
+ * 这样可以避免URL编码/解码导致的签名不匹配问题
+ * 查询参数在URL中正常传递即可
+ */
+function getAuthorization(config: CosConfig, method: string, path: string): string {
   const now = Math.floor(Date.now() / 1000)
   const keyTime = `${now};${now + 3600}`
 
   // 1. SignKey = HMAC-SHA1(SecretKey, KeyTime)
   const signKey = hmacSha1(config.secretKey, keyTime)
 
-  // 2. FormatParameters: 参数按字典序排列，key小写+URI编码，value仅URI编码（不转小写）
-  //    与官方cos-js-sdk-v5的obj2str(obj, true)逻辑一致
-  const sortedParamKeys = Object.keys(queryParams).sort((a, b) => {
-    const la = a.toLowerCase(), lb = b.toLowerCase()
-    return la === lb ? 0 : la > lb ? 1 : -1
-  })
-  const formatParameters = sortedParamKeys
-    .map(k => `${camSafeUrlEncode(k).toLowerCase()}=${camSafeUrlEncode(queryParams[k] === undefined || queryParams[k] === null ? '' : '' + queryParams[k])}`)
-    .join('&')
+  // 2. HttpParameters 为空（查询参数不参与签名）
+  const formatParameters = ''
 
   // 3. HttpHeaders: 仅签host（key小写，value URI编码）
   const hostStr = `${config.bucket}.cos.${config.region}.myqcloud.com`
@@ -100,11 +99,8 @@ function getAuthorization(config: CosConfig, method: string, path: string, query
   // 6. Signature
   const signature = hmacSha1(signKey, stringToSign)
 
-  // 7. q-url-param-list: 参与签名的参数名列表（小写，分号分隔）
-  const paramList = sortedParamKeys.map(k => camSafeUrlEncode(k).toLowerCase()).join(';')
-
-  // 8. Authorization
-  return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=${paramList}&q-signature=${signature}`
+  // 7. Authorization（q-url-param-list为空）
+  return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`
 }
 
 // ============ COS API ============
@@ -136,27 +132,11 @@ export async function listCosFiles(prefix: string = '', delimiter: string = '/')
   const host = `${config.bucket}.cos.${config.region}.myqcloud.com`
   const path = '/'
 
-  // 查询参数必须参与签名计算
-  const queryParams: Record<string, string> = {
-    prefix: fullPrefix,
-    delimiter: delimiter,
-    'max-keys': '200',
-  }
-
-  // 构建 HttpParameters: key小写+URI编码，value仅URI编码，按字典序排列
-  // 与官方cos-js-sdk-v5的obj2str(obj, true)逻辑一致
-  const sortedParamKeys = Object.keys(queryParams).sort((a, b) => {
-    const la = a.toLowerCase(), lb = b.toLowerCase()
-    return la === lb ? 0 : la > lb ? 1 : -1
-  })
-  const formatParameters = sortedParamKeys
-    .map(k => `${camSafeUrlEncode(k).toLowerCase()}=${camSafeUrlEncode(queryParams[k] === undefined || queryParams[k] === null ? '' : '' + queryParams[k])}`)
-    .join('&')
-
-  const queryString = formatParameters
+  // 查询参数不参与签名，直接用原始参数构建URL
+  const queryString = `prefix=${encodeURIComponent(fullPrefix)}&delimiter=${encodeURIComponent(delimiter)}&max-keys=200`
   const url = `https://${host}${path}?${queryString}`
 
-  const authorization = getAuthorization(config, 'GET', path, queryParams)
+  const authorization = getAuthorization(config, 'GET', path)
 
   return new Promise((resolve, reject) => {
     uni.request({
@@ -265,6 +245,7 @@ export function getFileUrl(fileKey: string): string {
 
 /**
  * 获取带签名的私有访问URL（有效期1小时）
+ * 查询参数不参与签名，只签名host头
  */
 export function getSignedUrl(fileKey: string, expireSeconds: number = 3600): string {
   const config = getCosConfig()
@@ -278,9 +259,9 @@ export function getSignedUrl(fileKey: string, expireSeconds: number = 3600): str
   const keyTime = `${now};${expireTime}`
 
   const signKey = hmacSha1(config.secretKey, keyTime)
-  // 无查询参数时FormatParameters为空
+  // 查询参数不参与签名
   const formatHeaders = `host=${camSafeUrlEncode(host.toLowerCase())}`
-  const httpString = `GET\n${path}\n\n${formatHeaders}\n`
+  const httpString = `get\n${path}\n\n${formatHeaders}\n`
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
   const signature = hmacSha1(signKey, stringToSign)
 
