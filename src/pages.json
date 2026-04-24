@@ -1,0 +1,77 @@
+{
+  "pages": [
+    {
+      "path": "pages/home/index",
+      "style": {
+        "navigationBarTitleText": "糖果学英语",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/register/index",
+      "style": {
+        "navigationBarTitleText": "注册",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/flashcard/index",
+      "style": {
+        "navigationBarTitleText": "闪卡学习"
+      }
+    },
+    {
+      "path": "pages/setting/index",
+      "style": {
+        "navigationBarTitleText": "家长设置"
+      }
+    },
+    {
+      "path": "pages/cloud-resource/index",
+      "style": {
+        "navigationBarTitleText": "云资源"
+      }
+    },
+    {
+      "path": "pages/cloud-player/index",
+      "style": {
+        "navigationBarTitleText": "播放",
+        "navigationBarBackgroundColor": "#0a0a1a",
+        "navigationBarTextStyle": "white"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "糖果学英语",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f6fa"
+  },
+  "tabBar": {
+    "color": "#999",
+    "selectedColor": "#667eea",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页",
+        "iconPath": "static/tab/home.png",
+        "selectedIconPath": "static/tab/home-active.png"
+      },
+      {
+        "pagePath": "pages/setting/index",
+        "text": "设置",
+        "iconPath": "static/tab/setting.png",
+        "selectedIconPath": "static/tab/setting-active.png"
+      }
+    ]
+  }
+}
