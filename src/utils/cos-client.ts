@@ -53,8 +53,8 @@ export function isCosConfigured(): boolean {
  * 注意：SecretKey会暴露在前端，仅适用于家庭个人使用场景
  * 生产环境应使用临时密钥（STS），通过后端代理获取
  */
-function hmacSha1(key: string, message: string): string {
-  return CryptoJS.HmacSHA1(message, key).toString(CryptoJS.enc.Base64)
+function hmacSha1Hex(key: string, message: string): string {
+  return CryptoJS.HmacSHA1(message, key).toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -81,7 +81,7 @@ function getAuthorization(config: CosConfig, method: string, path: string): stri
   const keyTime = `${now};${now + 3600}`
 
   // 1. SignKey = HMAC-SHA1(SecretKey, KeyTime)
-  const signKey = hmacSha1(config.secretKey, keyTime)
+  const signKey = hmacSha1Hex(config.secretKey, keyTime)
 
   // 2. HttpParameters 为空（查询参数不参与签名）
   const formatParameters = ''
@@ -97,7 +97,7 @@ function getAuthorization(config: CosConfig, method: string, path: string): stri
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
 
   // 6. Signature
-  const signature = hmacSha1(signKey, stringToSign)
+  const signature = hmacSha1Hex(signKey, stringToSign)
 
   // 7. Authorization（q-url-param-list为空）
   return `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`
@@ -258,12 +258,12 @@ export function getSignedUrl(fileKey: string, expireSeconds: number = 3600): str
   const expireTime = now + expireSeconds
   const keyTime = `${now};${expireTime}`
 
-  const signKey = hmacSha1(config.secretKey, keyTime)
+  const signKey = hmacSha1Hex(config.secretKey, keyTime)
   // 查询参数不参与签名
   const formatHeaders = `host=${camSafeUrlEncode(host.toLowerCase())}`
   const httpString = `get\n${path}\n\n${formatHeaders}\n`
   const stringToSign = `sha1\n${keyTime}\n${CryptoJS.SHA1(httpString).toString()}\n`
-  const signature = hmacSha1(signKey, stringToSign)
+  const signature = hmacSha1Hex(signKey, stringToSign)
 
   const auth = `q-sign-algorithm=sha1&q-ak=${config.secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`
 
